@@ -1,0 +1,38 @@
+.map-page {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+  }
+  
+  .map-page h1 {
+    margin-bottom: 10px;
+    color: #2c3e50;
+  }
+  
+  .map-page p {
+    margin-bottom: 20px;
+    color: #7f8c8d;
+  }
+  
+  .map-container-wrapper {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 40px;
+  }
+  
+  .map-sidebar {
+    width: 350px;
+    flex-shrink: 0;
+  }
+  
+  /* Responsive adjustments */
+  @media (max-width: 992px) {
+    .map-container-wrapper {
+      flex-direction: column;
+    }
+    
+    .map-sidebar {
+      width: 100%;
+      order: -1; /* Show sidebar above map on mobile */
+    }
+  }

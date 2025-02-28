@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GoogleMap, LoadScript, Marker, InfoWindow } from '@react-google-maps/api';
+import { GoogleMap, LoadScript, Marker, InfoWindow, Polyline } from '@react-google-maps/api';
 import { useUser } from '../../context/UserContext';
 import ReportForm from './ReportForm';
 import '../../styles/Map.css';
@@ -14,7 +14,7 @@ const defaultCenter = {
   lng: 2.3522
 };
 
-const Map = () => {
+const Map = ({ selectedRoute, origin, destination }) => {
   const { isAuthenticated } = useUser();
   const [userLocation, setUserLocation] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -22,15 +22,18 @@ const Map = () => {
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [showReportForm, setShowReportForm] = useState(false);
   const [reports, setReports] = useState([]);
+  const [mapCenter, setMapCenter] = useState(defaultCenter);
 
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          setUserLocation({
+          const userPos = {
             lat: position.coords.latitude,
             lng: position.coords.longitude
-          });
+          };
+          setUserLocation(userPos);
+          setMapCenter(userPos);
           setLoading(false);
         },
         (error) => {
@@ -65,6 +68,18 @@ const Map = () => {
       }
     ]);
   }, []);
+
+  // Update map center when origin or destination changes
+  useEffect(() => {
+    if (origin && destination) {
+      // Center the map to show both origin and destination
+      const centerLat = (origin.lat + destination.lat) / 2;
+      const centerLng = (origin.lng + destination.lng) / 2;
+      setMapCenter({ lat: centerLat, lng: centerLng });
+    } else if (origin) {
+      setMapCenter(origin);
+    }
+  }, [origin, destination]);
 
   const handleMapClick = (event) => {
     if (isAuthenticated) {
@@ -105,6 +120,13 @@ const Map = () => {
     };
   };
 
+  // Helper function to get safety color
+  const getSafetyColor = (score) => {
+    if (score >= 8) return '#4caf50'; // Green for safe
+    if (score >= 6) return '#ff9800'; // Orange for moderate
+    return '#f44336'; // Red for unsafe
+  };
+
   if (loading) {
     return <div className="loading">Loading map...</div>;
   }
@@ -122,7 +144,7 @@ const Map = () => {
       <LoadScript googleMapsApiKey={process.env.REACT_APP_GOOGLE_MAPS_API_KEY}>
         <GoogleMap
           mapContainerStyle={containerStyle}
-          center={userLocation || defaultCenter}
+          center={mapCenter}
           zoom={14}
           onClick={handleMapClick}
         >
@@ -134,6 +156,40 @@ const Map = () => {
                 url: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png'
               }}
               title="Your location"
+            />
+          )}
+          
+          {/* Origin marker */}
+          {origin && (
+            <Marker
+              position={origin}
+              icon={{
+                url: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png'
+              }}
+              title="Starting point"
+            />
+          )}
+          
+          {/* Destination marker */}
+          {destination && (
+            <Marker
+              position={destination}
+              icon={{
+                url: 'https://maps.google.com/mapfiles/ms/icons/red-dot.png'
+              }}
+              title="Destination"
+            />
+          )}
+          
+          {/* Selected route polyline */}
+          {selectedRoute && (
+            <Polyline
+              path={selectedRoute.path}
+              options={{
+                strokeColor: getSafetyColor(selectedRoute.safetyScore),
+                strokeWeight: 5,
+                strokeOpacity: 0.8
+              }}
             />
           )}
           
