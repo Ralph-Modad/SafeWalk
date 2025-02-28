@@ -1,4 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
+import { userService } from '../services/api';
 
 // Create context
 const UserContext = createContext();
@@ -6,20 +7,33 @@ const UserContext = createContext();
 // Provider component
 export const UserProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Simulate checking for a logged-in user
+  // Check for stored token and user data on initial load
   useEffect(() => {
     const checkLoggedInUser = async () => {
       try {
-        // In a real app, this would check localStorage, cookies, or an auth service
-        const storedUser = localStorage.getItem('user');
+        const storedToken = localStorage.getItem('token');
         
-        if (storedUser) {
-          setUser(JSON.parse(storedUser));
+        if (storedToken) {
+          setToken(storedToken);
+          
+          // Try to get user profile with the stored token
+          try {
+            const { user } = await userService.getProfile();
+            setUser(user);
+          } catch (profileError) {
+            // If getting profile fails, clear the token
+            console.error('Error fetching user profile:', profileError);
+            localStorage.removeItem('token');
+            setToken(null);
+          }
         }
       } catch (error) {
         console.error('Error checking authentication:', error);
+        setError('Authentication check failed');
       } finally {
         setLoading(false);
       }
@@ -28,24 +42,98 @@ export const UserProvider = ({ children }) => {
     checkLoggedInUser();
   }, []);
 
-  // Login function
-  const login = (userData) => {
-    setUser(userData);
-    localStorage.setItem('user', JSON.stringify(userData));
+// Login function
+const login = async (credentials) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await userService.login(credentials);
+      const { user, token } = response;
+      
+      // Store token and user data
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(user));
+      
+      setUser(user);
+      setToken(token);
+      
+      return user;
+    } catch (error) {
+      console.error('Login error:', error);
+      setError(error.message || 'Failed to login. Please check your credentials.');
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Register function
+  const register = async (userData) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await userService.register(userData);
+      const { user, token } = response;
+      
+      // Store token and user data
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(user));
+      
+      setUser(user);
+      setToken(token);
+      
+      return user;
+    } catch (error) {
+      console.error('Registration error:', error);
+      setError(error.message || 'Failed to register. Please try again.');
+      throw error;
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Logout function
   const logout = () => {
     setUser(null);
+    setToken(null);
+    localStorage.removeItem('token');
     localStorage.removeItem('user');
+  };
+
+  // Update user profile
+  const updateProfile = async (profileData) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await userService.updateProfile(profileData);
+      const { user: updatedUser } = response;
+      
+      // Update stored user data
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      setUser(updatedUser);
+      
+      return updatedUser;
+    } catch (error) {
+      console.error('Update profile error:', error);
+      setError(error.message || 'Failed to update profile. Please try again.');
+      throw error;
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Context value
   const value = {
     user,
     loading,
+    error,
     login,
+    register,
     logout,
+    updateProfile,
     isAuthenticated: !!user
   };
 
