@@ -1,75 +1,43 @@
-const routeSchema = new mongoose.Schema({
-    name: {
-      type: String,
-      required: true
-    },
-    origin: {
-      type: {
-        type: String,
-        enum: ['Point'],
-        default: 'Point'
-      },
-      coordinates: {
-        type: [Number], // [longitude, latitude]
-        required: true
-      }
-    },
-    destination: {
-      type: {
-        type: String,
-        enum: ['Point'],
-        default: 'Point'
-      },
-      coordinates: {
-        type: [Number], // [longitude, latitude]
-        required: true
-      }
-    },
-    path: [{
-      lat: Number,
-      lng: Number
-    }],
-    distance: {
-      type: Number, // en km
-      required: true
-    },
-    duration: {
-      type: Number, // en minutes
-      required: true
-    },
-    safetyScore: {
-      type: Number,
-      min: 0,
-      max: 10,
-      required: true
-    },
-    safetyFactors: {
-      lighting: {
-        type: Number,
-        min: 0,
-        max: 10
-      },
-      crowdedness: {
-        type: Number,
-        min: 0,
-        max: 10
-      },
-      reportDensity: {
-        type: Number,
-        min: 0,
-        max: 10
-      }
-    },
-    createdAt: {
-      type: Date,
-      default: Date.now
-    },
-    expiresAt: {
-      type: Date,
-      default: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 jours
-    }
-  });
-  
-  // Index géospatiaux
-  routeSchema.index({ origin: '2dsphere' });
-  routeSchema.index({ destination: '2dsphere' });
+// backend/routes/routes.js
+const express = require('express');
+const { check } = require('express-validator');
+const { validateRequest } = require('../middleware/validation');
+const routeController = require('../controllers/routeController');
+const { protect } = require('../middleware/auth');
+
+const router = express.Router();
+
+// Obtenir des itinéraires sécurisés (accessible sans authentification)
+router.get(
+  '/',
+  [
+    check('origin', 'L\'origine est requise').not().isEmpty(),
+    check('destination', 'La destination est requise').not().isEmpty()
+  ],
+  validateRequest,
+  routeController.getSafeRoutes
+);
+
+// Obtenir un itinéraire spécifique
+router.get('/:id', routeController.getRoute);
+
+// Routes protégées
+router.use(protect);
+
+// Sauvegarder un itinéraire favori
+router.post(
+  '/favorites',
+  [
+    check('routeId', 'L\'ID de l\'itinéraire est requis').not().isEmpty()
+  ],
+  validateRequest,
+  routeController.saveFavorite
+);
+
+// Obtenir les itinéraires favoris de l'utilisateur
+router.get('/favorites', routeController.getFavorites);
+
+// Supprimer un itinéraire favori
+router.delete('/favorites/:id', routeController.removeFavorite);
+
+module.exports = router;

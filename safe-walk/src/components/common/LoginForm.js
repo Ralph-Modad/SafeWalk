@@ -8,35 +8,29 @@ const LoginForm = () => {
   const [error, setError] = useState('');
   const { login } = useUser();
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  setError('');
 
-    // Basic validation
-    if (!email || !password) {
-      setError('Please enter both email and password');
-      return;
-    }
+  // Basic validation
+  if (!email || !password) {
+    setError('Please enter both email and password');
+    return;
+  }
 
-    try {
-      // In a real app, this would call an authentication API
-      // For now, we'll simulate a successful login
-      const userData = {
-        id: '1',
-        email,
-        name: email.split('@')[0],
-        preferences: {
-          prioritizeLight: true,
-          avoidIsolatedAreas: true
-        }
-      };
-
-      login(userData);
-    } catch (err) {
-      setError('Invalid email or password');
-      console.error('Login error:', err);
-    }
-  };
+  try {
+    // Appel à l'API d'authentification
+    await login({ email, password });
+  } catch (err) {
+    // Vérifier que err.message existe, sinon utiliser JSON.stringify ou une valeur par défaut
+    const errorMessage = err.message 
+      ? err.message 
+      : (typeof err === 'object' ? JSON.stringify(err) : 'Invalid email or password');
+    
+    setError(errorMessage);
+    console.error('Login error:', err);
+  }
+};
 
   return (
     <div className="login-form-container">

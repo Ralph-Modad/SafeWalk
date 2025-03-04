@@ -10,8 +10,8 @@ const containerStyle = {
 };
 
 const defaultCenter = {
-  lat: 48.8566, // Paris coordinates as default
-  lng: 2.3522
+  lat: 43.6166, // Coordonnées de Sophia Antipolis
+  lng: 7.0666
 };
 
 const Map = ({ selectedRoute, origin, destination }) => {

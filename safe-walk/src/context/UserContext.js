@@ -44,30 +44,35 @@ export const UserProvider = ({ children }) => {
 
 // Login function
 const login = async (credentials) => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const response = await userService.login(credentials);
-      const { user, token } = response;
-      
-      // Store token and user data
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user));
-      
-      setUser(user);
-      setToken(token);
-      
-      return user;
-    } catch (error) {
-      console.error('Login error:', error);
-      setError(error.message || 'Failed to login. Please check your credentials.');
-      throw error;
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  try {
+    setLoading(true);
+    setError(null);
+    
+    const response = await userService.login(credentials);
+    const { user, token } = response;
+    
+    // Store token and user data
+    localStorage.setItem('token', token);
+    localStorage.setItem('user', JSON.stringify(user));
+    
+    setUser(user);
+    setToken(token);
+    
+    return user;
+  } catch (error) {
+    console.error('Login error:', error);
+    
+    // Améliorer le message d'erreur
+    const errorMessage = error.message || 
+                         (error.response?.data?.message) || 
+                         'Failed to login. Please check your credentials.';
+    
+    setError(errorMessage);
+    throw new Error(errorMessage); // Lancer une vraie Error avec un message
+  } finally {
+    setLoading(false);
+  }
+};
   // Register function
   const register = async (userData) => {
     try {
