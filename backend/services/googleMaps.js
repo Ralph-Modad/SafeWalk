@@ -5,7 +5,7 @@ const config = require('../config/config');
 const googleMapsClient = axios.create({
   baseURL: 'https://maps.googleapis.com/maps/api',
   params: {
-    key: config.GOOGLE_MAPS_API_KEY
+    key: ""
   }
 });
 
@@ -38,10 +38,13 @@ exports.getDirections = async (origin, destination, waypoints = []) => {
     const originStr = typeof origin === 'string' ? origin : `${origin.lat},${origin.lng}`;
     const destinationStr = typeof destination === 'string' ? destination : `${destination.lat},${destination.lng}`;
     
-    // Format waypoints
-    const waypointsParam = waypoints.length > 0 
-      ? waypoints.map(wp => `${wp.lat},${wp.lng}`).join('|')
-      : null;
+    // Format waypoints pour l'API
+    let waypointsParam = null;
+    if (waypoints && waypoints.length > 0) {
+      waypointsParam = waypoints.map(wp => {
+        return typeof wp === 'string' ? wp : `${wp.lat},${wp.lng}`;
+      }).join('|');
+    }
     
     console.log(`Demande d'itinéraire piéton de ${originStr} à ${destinationStr}`);
     
@@ -50,13 +53,15 @@ exports.getDirections = async (origin, destination, waypoints = []) => {
         origin: originStr,
         destination: destinationStr,
         waypoints: waypointsParam,
-        mode: 'walking', // Utiliser le mode piéton explicitement
-        alternatives: true, // Demander des itinéraires alternatifs
-        units: 'metric' // Utiliser les unités métriques
+        mode: 'walking', // Important: mode piéton
+        alternatives: true, // Obtenir plusieurs itinéraires alternatifs
+        units: 'metric',
+        language: 'fr' // Pour les instructions en français
       }
     });
 
     if (response.data.status !== 'OK') {
+      console.error(`Erreur API Directions: ${response.data.status}`, response.data);
       throw new Error(`Erreur d'itinéraire: ${response.data.status}`);
     }
 
@@ -64,29 +69,39 @@ exports.getDirections = async (origin, destination, waypoints = []) => {
       throw new Error('Aucun itinéraire trouvé');
     }
 
-    return response.data.routes.map(route => ({
-      distance: route.legs[0].distance.value / 1000, // convertir en km
-      duration: Math.ceil(route.legs[0].duration.value / 60), // convertir en minutes
-      polyline: route.overview_polyline.points,
-      steps: route.legs[0].steps.map(step => ({
-        instruction: step.html_instructions,
-        distance: step.distance.value,
-        duration: step.duration.value,
-        startLocation: step.start_location,
-        endLocation: step.end_location,
-        maneuver: step.maneuver || null
-      })),
-      path: this.decodePath(route.overview_polyline.points),
-      summary: route.summary
-    }));
+    return response.data.routes.map(route => {
+      // Extraire tous les points du chemin avec le décodage de polyline
+      const path = this.decodePath(route.overview_polyline.points);
+      
+      return {
+        distance: route.legs[0].distance.value / 1000, // km
+        duration: Math.ceil(route.legs[0].duration.value / 60), // minutes
+        polyline: route.overview_polyline.points,
+        steps: route.legs[0].steps.map(step => ({
+          instruction: step.html_instructions,
+          distance: step.distance.value,
+          duration: step.duration.value,
+          startLocation: step.start_location,
+          endLocation: step.end_location,
+          maneuver: step.maneuver || null,
+          // Ajouter les points détaillés pour chaque étape de l'itinéraire
+          path: step.polyline ? this.decodePath(step.polyline.points) : []
+        })),
+        path: path, // Tous les points du chemin décodés
+        summary: route.summary || 'Itinéraire piéton'
+      };
+    });
   } catch (error) {
-    console.error('Erreur lors de la recherche d\'itinéraire:', error.message);
+    console.error('Erreur lors de la recherche d\'itinéraire:', error);
     throw error;
   }
 };
 
-// Décodage du polyline en coordonnées
+// Décodage des polylines de Google Maps
+// Cette fonction convertit le format encodé en points géographiques
 exports.decodePath = (encodedPath) => {
+  if (!encodedPath) return [];
+  
   let points = [];
   let index = 0, lat = 0, lng = 0;
 

@@ -1,5 +1,4 @@
 // backend/controllers/routeController.js
-const Route = require('../models/Route');
 const Report = require('../models/Report');
 const googleMapsService = require('../services/googleMaps');
 const safetyCalculator = require('../services/safetyCalculator');
@@ -74,6 +73,7 @@ exports.getSafeRoutes = async (req, res) => {
 
     // Calculer le score de sécurité pour chaque itinéraire
     const safeRoutes = await Promise.all(routes.map(async (route, index) => {
+      // Nous utilisons le chemin réel fourni par Google Maps qui suit les rues
       const { safetyScore, safetyFactors, hotspots } = await safetyCalculator.calculateSafetyScore(
         route.path,
         userPreferences
@@ -82,7 +82,7 @@ exports.getSafeRoutes = async (req, res) => {
       // Déterminer un nom approprié pour cet itinéraire
       let routeName;
       if (index === 0) {
-        routeName = 'Itinéraire recommandé'; // Premier itinéraire par défaut
+        routeName = 'Itinéraire recommandé';
       } else if (route.distance < routes[0].distance * 0.95) {
         routeName = 'Itinéraire le plus rapide';
       } else if (safetyScore > routes[0].safetyScore * 1.1) {
@@ -106,11 +106,11 @@ exports.getSafeRoutes = async (req, res) => {
         },
         distance: route.distance,
         duration: route.duration,
-        path: route.path,
+        path: route.path, // Ce chemin contient maintenant les points qui suivent les rues
         steps: route.steps,
         safetyScore,
         safetyFactors,
-        hotspots: hotspots.slice(0, 5), // Limiter aux 5 points chauds les plus importants
+        hotspots: hotspots.slice(0, 5),
         summary: route.summary || `Via ${determineMainStreet(route)}`
       };
     }));
@@ -166,6 +166,7 @@ const determineMainStreet = (route) => {
   return "route alternative";
 };
 
+// Reste des méthodes du contrôleur inchangées ...
 // Obtenir un itinéraire spécifique
 exports.getRoute = async (req, res) => {
   try {

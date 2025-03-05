@@ -96,7 +96,8 @@ export const reportService = {
       return await api.get('/reports', { params: { bounds } });
     } catch (error) {
       console.error('Failed to fetch reports:', error);
-      // For development, return empty reports array instead of failing
+      // Pour le développement, nous pouvons retourner un tableau vide
+      // En production, vous voudriez probablement remonter l'erreur
       return { reports: [] };
     }
   },
@@ -147,24 +148,21 @@ export const routeService = {
         } 
       });
 
-      // Vérifier si la réponse contient des itinéraires
-      if (response && response.routes && response.routes.length > 0) {
-        return response;
-      } else {
-        // Si le backend ne retourne pas d'itinéraires, générer des itinéraires simulés
-        console.warn('Aucun itinéraire retourné par le backend, utilisation de données simulées');
-        
-        // Générer des itinéraires simulés avec une vraie distance entre les points
-        const mockRoutes = generateMockRoutes(origin, destination, preferences);
-        return { routes: mockRoutes };
-      }
+      return response;
     } catch (error) {
       console.error('Erreur lors de la récupération des itinéraires:', error);
       
-      // Fallback en cas d'erreur : générer des itinéraires simulés
-      console.warn('Génération d\'itinéraires simulés en raison d\'une erreur');
-      const mockRoutes = generateMockRoutes(origin, destination, preferences);
-      return { routes: mockRoutes };
+      // En environnement de développement, nous générons des itinéraires fictifs
+      // En production, vous pourriez vouloir remonter l'erreur
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('Mode développement: génération d\'itinéraires simulés');
+        return { 
+          routes: generateMockRoutes(origin, destination, preferences),
+          message: 'Données simulées (backend non connecté)'
+        };
+      }
+      
+      throw error;
     }
   },
   
@@ -205,7 +203,7 @@ export const routeService = {
   }
 };
 
-// Fonction utilitaire pour générer des itinéraires simulés
+// Fonction utilitaire pour générer des itinéraires simulés en mode développement
 function generateMockRoutes(origin, destination, preferences) {
   // Calculer la distance réelle entre l'origine et la destination
   const distance = calculateDistance(

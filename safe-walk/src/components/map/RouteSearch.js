@@ -1,12 +1,8 @@
 // safe-walk/src/components/map/RouteSearch.js
 import React, { useState, useEffect } from 'react';
-import { useJsApiLoader } from '@react-google-maps/api';
 import { routeService } from '../../services/api';
 import { useUser } from '../../context/UserContext';
 import '../../styles/RouteSearch.css';
-
-// Définir les bibliothèques Google Maps à charger
-const libraries = ['places'];
 
 const RouteSearch = ({ onRoutesFound, onSearchStart, onSearchError, isLoaded, loadError, googleMapsApiKey }) => {
   const { user } = useUser();
@@ -136,71 +132,17 @@ const RouteSearch = ({ onRoutesFound, onSearchStart, onSearchError, isLoaded, lo
         avoidIsolatedAreas: true
       };
 
-      // Obtenir les itinéraires depuis l'API (en mode fallback pour le développement)
+      // Appel à l'API pour obtenir les itinéraires
       try {
-        // Utiliser une version locale du service getRoutes pour le développement
-        // Cela simule des itinéraires sans faire d'appel au backend
+        const response = await routeService.getRoutes(originCoords, destinationCoords, preferences);
         
-        // Calculer la distance réelle entre l'origine et la destination (Haversine)
-        const distance = calculateDistance(
-          originCoords.lat, originCoords.lng,
-          destinationCoords.lat, destinationCoords.lng
-        );
-        
-        // Estimer le temps de marche (5 km/h en moyenne)
-        const walkingSpeed = 5; // km/h
-        const duration = Math.round((distance / walkingSpeed) * 60); // minutes
-        
-        console.log("Distance calculée:", distance, "km");
-        console.log("Durée estimée:", duration, "minutes");
-        
-        // Générer 3 itinéraires différents
-        const routes = [
-          {
-            id: 'route_1',
-            name: 'Itinéraire le plus sûr',
-            distance: parseFloat(distance.toFixed(1)),
-            duration: duration,
-            safetyScore: 8.7,
-            path: generatePathWithCurve(originCoords, destinationCoords, 0.005),
-            safetyFactors: {
-              lighting: 9,
-              crowdedness: 8,
-              reportDensity: 9
-            },
-            summary: 'Via rues principales'
-          },
-          {
-            id: 'route_2',
-            name: 'Itinéraire le plus rapide',
-            distance: parseFloat((distance * 0.9).toFixed(1)),
-            duration: Math.round(duration * 0.9),
-            safetyScore: 6.5,
-            path: generatePathWithCurve(originCoords, destinationCoords, -0.005),
-            safetyFactors: {
-              lighting: 6,
-              crowdedness: 7,
-              reportDensity: 6
-            },
-            summary: 'Itinéraire direct'
-          },
-          {
-            id: 'route_3',
-            name: 'Itinéraire alternatif',
-            distance: parseFloat((distance * 1.1).toFixed(1)),
-            duration: Math.round(duration * 1.1),
-            safetyScore: 7.2,
-            path: generatePathWithCurve(originCoords, destinationCoords, 0.01),
-            safetyFactors: {
-              lighting: 7,
-              crowdedness: 8,
-              reportDensity: 7
-            },
-            summary: 'Via zones piétonnes'
-          }
-        ];
-        
-        onRoutesFound(routes, originCoords, destinationCoords);
+        if (response && response.routes && response.routes.length > 0) {
+          onRoutesFound(response.routes, originCoords, destinationCoords);
+        } else {
+          const errorMsg = 'Aucun itinéraire trouvé entre ces points.';
+          setError(errorMsg);
+          if (onSearchError) onSearchError(errorMsg);
+        }
       } catch (apiError) {
         console.error('Erreur API:', apiError);
         const errorMsg = `Impossible de trouver un itinéraire: ${apiError.message || 'Erreur inconnue'}`;
@@ -254,55 +196,6 @@ const RouteSearch = ({ onRoutesFound, onSearchStart, onSearchError, isLoaded, lo
         reject(new Error('La géolocalisation n\'est pas supportée par votre navigateur. Veuillez entrer une adresse de départ.'));
       }
     });
-  };
-
-  // Fonction pour calculer la distance entre deux points (Haversine)
-  const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371; // Rayon de la Terre en km
-    const dLat = deg2rad(lat2 - lat1);
-    const dLon = deg2rad(lon2 - lon1);
-    const a =
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
-      Math.sin(dLon/2) * Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c; // Distance en km
-  };
-
-  const deg2rad = (deg) => {
-    return deg * (Math.PI/180);
-  };
-
-  // Fonction pour générer un chemin avec une courbe
-  const generatePathWithCurve = (start, end, curveFactor) => {
-    const path = [];
-    const steps = 20;
-    
-    // Calculer un point intermédiaire pour créer une courbe
-    // Nous prenons un point perpendiculaire à la ligne directe
-    const dx = end.lng - start.lng;
-    const dy = end.lat - start.lat;
-    
-    // Point médian direct
-    const midLat = (start.lat + end.lat) / 2;
-    const midLng = (start.lng + end.lng) / 2;
-    
-    // Déplacer le point médian perpendiculairement à la ligne directe
-    const perpLat = midLat + curveFactor * dx;
-    const perpLng = midLng - curveFactor * dy;
-    
-    // Générer les points intermédiaires en utilisant une courbe de Bézier quadratique
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      
-      // Formule pour une courbe de Bézier quadratique
-      const lat = (1-t)*(1-t)*start.lat + 2*(1-t)*t*perpLat + t*t*end.lat;
-      const lng = (1-t)*(1-t)*start.lng + 2*(1-t)*t*perpLng + t*t*end.lng;
-      
-      path.push({ lat, lng });
-    }
-    
-    return path;
   };
 
   return (
