@@ -15,7 +15,6 @@ const RouteSearch = ({ onRoutesFound, onSearchStart, onSearchError, isLoaded, lo
   // Debug: Afficher dans la console si l'API est chargée et la clé utilisée
   useEffect(() => {
     console.log("RouteSearch - API chargée:", isLoaded);
-    console.log("RouteSearch - Clé API reçue:", googleMapsApiKey ? "Oui" : "Non");
     
     if (loadError) {
       console.error("Erreur de chargement dans RouteSearch:", loadError);
@@ -132,7 +131,7 @@ const RouteSearch = ({ onRoutesFound, onSearchStart, onSearchError, isLoaded, lo
         avoidIsolatedAreas: true
       };
 
-      // Appel à l'API pour obtenir les itinéraires
+      // Appel à l'API pour obtenir les itinéraires (maintenant sans données fictives)
       try {
         const response = await routeService.getRoutes(originCoords, destinationCoords, preferences);
         
@@ -200,7 +199,7 @@ const RouteSearch = ({ onRoutesFound, onSearchStart, onSearchError, isLoaded, lo
 
   return (
     <div className="route-search-container">
-      <h2>Trouver un itinéraire sécurisé</h2>
+      <h2>Trouver un itinéraire piéton sécurisé</h2>
       {error && <div className="error-message">{error}</div>}
       {!isLoaded && <div className="info-message">Chargement de l'API Google Maps...</div>}
       
@@ -246,7 +245,7 @@ const RouteSearch = ({ onRoutesFound, onSearchStart, onSearchError, isLoaded, lo
           className="search-button"
           disabled={loading || !isLoaded}
         >
-          {loading ? 'Recherche en cours...' : 'Trouver des itinéraires sécurisés'}
+          {loading ? 'Recherche en cours...' : 'Trouver des itinéraires piétons sécurisés'}
         </button>
       </form>
     </div>
