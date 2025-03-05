@@ -17,21 +17,22 @@ exports.geocode = async (address) => {
     });
 
     if (response.data.status !== 'OK') {
-      throw new Error(`Geocoding error: ${response.data.status}`);
+      throw new Error(`Erreur de géocodage: ${response.data.status}`);
     }
 
     const location = response.data.results[0].geometry.location;
     return {
       lat: location.lat,
-      lng: location.lng
+      lng: location.lng,
+      formattedAddress: response.data.results[0].formatted_address
     };
   } catch (error) {
-    console.error('Geocoding error:', error.message);
+    console.error('Erreur de géocodage:', error.message);
     throw error;
   }
 };
 
-// Itinéraire entre deux points
+// Itinéraire entre deux points pour les piétons
 exports.getDirections = async (origin, destination, waypoints = []) => {
   try {
     const originStr = typeof origin === 'string' ? origin : `${origin.lat},${origin.lng}`;
@@ -42,18 +43,25 @@ exports.getDirections = async (origin, destination, waypoints = []) => {
       ? waypoints.map(wp => `${wp.lat},${wp.lng}`).join('|')
       : null;
     
+    console.log(`Demande d'itinéraire piéton de ${originStr} à ${destinationStr}`);
+    
     const response = await googleMapsClient.get('/directions/json', {
       params: {
         origin: originStr,
         destination: destinationStr,
         waypoints: waypointsParam,
-        mode: 'walking',
-        alternatives: true
+        mode: 'walking', // Utiliser le mode piéton explicitement
+        alternatives: true, // Demander des itinéraires alternatifs
+        units: 'metric' // Utiliser les unités métriques
       }
     });
 
     if (response.data.status !== 'OK') {
-      throw new Error(`Directions error: ${response.data.status}`);
+      throw new Error(`Erreur d'itinéraire: ${response.data.status}`);
+    }
+
+    if (!response.data.routes || response.data.routes.length === 0) {
+      throw new Error('Aucun itinéraire trouvé');
     }
 
     return response.data.routes.map(route => ({
@@ -65,12 +73,14 @@ exports.getDirections = async (origin, destination, waypoints = []) => {
         distance: step.distance.value,
         duration: step.duration.value,
         startLocation: step.start_location,
-        endLocation: step.end_location
+        endLocation: step.end_location,
+        maneuver: step.maneuver || null
       })),
-      path: this.decodePath(route.overview_polyline.points)
+      path: this.decodePath(route.overview_polyline.points),
+      summary: route.summary
     }));
   } catch (error) {
-    console.error('Directions error:', error.message);
+    console.error('Erreur lors de la recherche d\'itinéraire:', error.message);
     throw error;
   }
 };
