@@ -40,10 +40,18 @@ exports.getDirections = async (origin, destination, waypoints = []) => {
     
     // Format waypoints
     const waypointsParam = waypoints.length > 0 
-      ? waypoints.map(wp => `${wp.lat},${wp.lng}`).join('|')
-      : null;
-    
+    ? waypoints.map(wp => `${wp.lat},${wp.lng}`).join('|')
+    : undefined; // Instead of null, use undefined so it's not included in the request
+  
     console.log(`Demande d'itinéraire piéton de ${originStr} à ${destinationStr}`);
+    console.log('Params envoyés à Google Maps API:', {
+      origin: originStr,
+      destination: destinationStr,
+      waypoints: waypointsParam,
+      mode: 'walking',
+      alternatives: true,
+      units: 'metric'
+    });
     
     const response = await googleMapsClient.get('/directions/json', {
       params: {
@@ -63,22 +71,31 @@ exports.getDirections = async (origin, destination, waypoints = []) => {
     if (!response.data.routes || response.data.routes.length === 0) {
       throw new Error('Aucun itinéraire trouvé');
     }
+    
+    return response.data.routes.map(route => {
+      if (!route.legs || route.legs.length === 0) {
+        throw new Error('Détails de l’itinéraire indisponibles');
+      }
 
-    return response.data.routes.map(route => ({
-      distance: route.legs[0].distance.value / 1000, // convertir en km
-      duration: Math.ceil(route.legs[0].duration.value / 60), // convertir en minutes
-      polyline: route.overview_polyline.points,
-      steps: route.legs[0].steps.map(step => ({
-        instruction: step.html_instructions,
-        distance: step.distance.value,
-        duration: step.duration.value,
-        startLocation: step.start_location,
-        endLocation: step.end_location,
-        maneuver: step.maneuver || null
-      })),
-      path: this.decodePath(route.overview_polyline.points),
-      summary: route.summary
-    }));
+
+    
+      return {
+        distance: route.legs[0].distance.value / 1000, // en km
+        duration: Math.ceil(route.legs[0].duration.value / 60), // en minutes
+        polyline: route.overview_polyline.points,
+        steps: route.legs[0].steps.map(step => ({
+          instruction: step.html_instructions,
+          distance: step.distance.value,
+          duration: step.duration.value,
+          startLocation: step.start_location,
+          endLocation: step.end_location,
+          maneuver: step.maneuver || null
+        })),
+        path: exports.decodePath(route.overview_polyline.points),
+        summary: route.summary
+      };
+    });
+    
   } catch (error) {
     console.error('Erreur lors de la recherche d\'itinéraire:', error.message);
     throw error;

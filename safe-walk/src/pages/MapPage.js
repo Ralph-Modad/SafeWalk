@@ -11,8 +11,11 @@ const libraries = ['places'];
 
 // ATTENTION: Ceci est temporaire pour tester - à remplacer par la clé API
 // Et à déplacer dans le fichier .env dès que possible
-const TEMP_API_KEY = ""; 
 
+// pointe sur la clé API dans le fichier .env
+const TEMP_API_KEY = ""//process.env.REACT_APP_GOOGLE_MAPS_API_KEY;
+
+console.log("Clé API via env:", process.env.REACT_APP_GOOGLE_MAPS_API_KEY);
 const MapPage = () => {
   const [routes, setRoutes] = useState([]);
   const [selectedRouteId, setSelectedRouteId] = useState(null);
