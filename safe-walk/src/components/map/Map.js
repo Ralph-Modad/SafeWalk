@@ -295,7 +295,9 @@ const Map = ({ selectedRoute, origin, destination, isLoaded, loadError }) => {
             options={{
               strokeColor: getSafetyColor(selectedRoute.safetyScore),
               strokeWeight: 5,
-              strokeOpacity: 0.8
+              strokeOpacity: 0.8,
+              geodesic: false
+
             }}
           />
         )}

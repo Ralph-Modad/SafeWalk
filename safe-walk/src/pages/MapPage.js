@@ -9,10 +9,6 @@ import '../styles/MapPage.css';
 // Définir les bibliothèques Google Maps à charger
 const libraries = ['places'];
 
-// ATTENTION: Ceci est temporaire pour tester - à remplacer par la clé API
-// Et à déplacer dans le fichier .env dès que possible
-const TEMP_API_KEY = ""; 
-
 const MapPage = () => {
   const [routes, setRoutes] = useState([]);
   const [selectedRouteId, setSelectedRouteId] = useState(null);
@@ -22,17 +18,21 @@ const MapPage = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Charger l'API Google Maps avec la clé API directe
+  // Obtenir la clé API depuis les variables d'environnement
+  const googleMapsApiKey = "";
+
+  // Charger l'API Google Maps avec la clé API
   const { isLoaded, loadError } = useJsApiLoader({
-    googleMapsApiKey: TEMP_API_KEY,
+    googleMapsApiKey,
     libraries
   });
 
   // Debug des variables d'environnement
   useEffect(() => {
-    console.log("Clé API via env:", process.env.REACT_APP_GOOGLE_MAPS_API_KEY);
-    console.log("Clé API directe utilisée:", TEMP_API_KEY);
-  }, []);
+    if (!googleMapsApiKey) {
+      console.warn("Attention: La clé API Google Maps n'est pas définie dans les variables d'environnement.");
+    }
+  }, [googleMapsApiKey]);
 
   // Afficher les erreurs de chargement de l'API
   useEffect(() => {
@@ -67,6 +67,13 @@ const MapPage = () => {
   };
 
   const handleSearchStart = () => {
+    // Effacer les routes précédentes lors d'une nouvelle recherche
+    setRoutes([]);
+    setOrigin(null);
+    setDestination(null);
+    setSelectedRouteId(null);
+    setShowRoutePanel(false);
+    
     setIsLoading(true);
     setError(null);
   };
@@ -87,7 +94,7 @@ const MapPage = () => {
   return (
     <div className="map-page">
       <h1>Carte SafeWalk</h1>
-      <p>Trouvez et naviguez sur des itinéraires sécurisés</p>
+      <p>Trouvez et naviguez sur des itinéraires piétons sécurisés</p>
 
       {!isLoaded && (
         <div className="loading-message">
@@ -111,13 +118,13 @@ const MapPage = () => {
             onSearchError={handleSearchError}
             isLoaded={isLoaded}
             loadError={loadError}
-            googleMapsApiKey={TEMP_API_KEY}
+            googleMapsApiKey={googleMapsApiKey}
           />
           
           {isLoading && (
             <div className="route-loading">
               <div className="spinner"></div>
-              <p>Recherche des meilleurs itinéraires...</p>
+              <p>Recherche des meilleurs itinéraires piétons...</p>
             </div>
           )}
           
@@ -142,7 +149,7 @@ const MapPage = () => {
           destination={destination}
           isLoaded={isLoaded}
           loadError={loadError}
-          googleMapsApiKey={TEMP_API_KEY}
+          googleMapsApiKey={googleMapsApiKey}
         />
       </div>
     </div>
