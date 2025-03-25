@@ -17,6 +17,7 @@ const routeRoutes = require('./routes/routes');
 // Initialisation de l'application
 const app = express();
 const PORT = process.env.PORT || 5000;
+console.log("GOOGLE_MAPS_API_KEY:", process.env.GOOGLE_MAPS_API_KEY);
 
 // Connexion à la base de données
 connectDB();

@@ -2,11 +2,19 @@
 const Report = require('../models/Report');
 const googleMapsService = require('../services/googleMaps');
 const safetyCalculator = require('../services/safetyCalculator');
+const helpers = require('../utils/helpers');
+const config = require('../config/config');
 
-// Obtenir des itinéraires sécurisés
+/**
+ * Obtenir des itinéraires sécurisés
+ * @param {Object} req - Requête HTTP
+ * @param {Object} res - Réponse HTTP
+ */
 exports.getSafeRoutes = async (req, res) => {
   try {
     const { origin, destination, preferences } = req.query;
+    
+    // Récupérer les préférences utilisateur ou utiliser des valeurs par défaut
     let userPreferences = req.user ? req.user.preferences : null;
 
     // Si des préférences spécifiques sont fournies dans la requête, les utiliser
@@ -19,13 +27,22 @@ exports.getSafeRoutes = async (req, res) => {
     }
 
     // Convertir les adresses en coordonnées si nécessaire
-    const originCoords = typeof origin === 'string' 
-      ? origin.startsWith('{') ? JSON.parse(origin) : await googleMapsService.geocode(origin)
-      : origin;
+    let originCoords, destinationCoords;
     
-    const destinationCoords = typeof destination === 'string'
-      ? destination.startsWith('{') ? JSON.parse(destination) : await googleMapsService.geocode(destination)
-      : destination;
+    try {
+      originCoords = typeof origin === 'string' 
+        ? origin.startsWith('{') ? JSON.parse(origin) : await googleMapsService.geocode(origin)
+        : origin;
+      
+      destinationCoords = typeof destination === 'string'
+        ? destination.startsWith('{') ? JSON.parse(destination) : await googleMapsService.geocode(destination)
+        : destination;
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: 'Erreur lors de la conversion des adresses en coordonnées. ' + error.message
+      });
+    }
 
     // Valider les coordonnées
     if (!originCoords || !destinationCoords || 
@@ -37,19 +54,11 @@ exports.getSafeRoutes = async (req, res) => {
       });
     }
 
-    console.log(`Recherche d'itinéraires de ${JSON.stringify(originCoords)} à ${JSON.stringify(destinationCoords)}`);
-
-    // AMÉLIORATION: Récupérer les rapports avec filtrage par âge
-    const buffer = 0.005; // ~500m de marge autour des coordonnées 
-    const reports = await getEnhancedReports(
-      originCoords, 
-      destinationCoords, 
-      buffer
-    );
-
+    // Récupérer les signalements pertinents
+    const reports = await getEnhancedReports(originCoords, destinationCoords);
     console.log(`Trouvé ${reports.length} signalements dans la zone`);
 
-    // Obtenir les itinéraires possibles via le service Google Maps mis à jour (API Routes)
+    // Obtenir les itinéraires possibles via Google Maps
     const initialRoutes = await googleMapsService.getDirections(originCoords, destinationCoords);
 
     if (!initialRoutes || initialRoutes.length === 0) {
@@ -93,10 +102,11 @@ exports.getSafeRoutes = async (req, res) => {
       summary: mainRoute.summary || 'Itinéraire principal'
     });
     
-    // Si des signalements existent, générer un itinéraire alternatif plus sûr
+    // Si des signalements existent et le score de sécurité n'est pas excellent,
+    // générer un itinéraire alternatif plus sûr
     if (reports.length > 0 && safetyScore < 9) {
-      // AMÉLIORATION 1: Générer un itinéraire qui évite les zones dangereuses avec plus de précision
-      const saferPath = await generateEnhancedSaferRoute(
+      // Générer un itinéraire plus sûr
+      const saferPath = await safetyCalculator.generateSaferRoute(
         mainRoute.path,
         reports,
         userPreferences
@@ -109,7 +119,7 @@ exports.getSafeRoutes = async (req, res) => {
       );
       
       // Calculer la distance du nouvel itinéraire
-      const saferDistance = calculateTotalPathLength(saferPath);
+      const saferDistance = helpers.calculateTotalPathLength(saferPath);
       
       // Estimer la durée (en minutes) du nouvel itinéraire basé sur une vitesse de marche de 5 km/h
       const saferDuration = Math.round((saferDistance / 5) * 60);
@@ -139,52 +149,54 @@ exports.getSafeRoutes = async (req, res) => {
           summary: 'Itinéraire sécurisé (évite les zones à risque)'
         });
       }
+    }
+    
+    // Si l'itinéraire initial n'est pas très sûr, proposer une troisième option
+    // maximisant la sécurité avec des détours plus importants
+    if (safetyScore < 7) {
+      const maxSafetyPath = generateMaxSafetyRoute(
+        mainRoute.path,
+        reports,
+        userPreferences
+      );
       
-      // AMÉLIORATION 2: Créer une troisième option maximisant la sécurité avec détours plus prononcés
-      if (safetyScore < 7) {
-        const maxSafetyPath = await generateMaxSafetyRoute(
-          mainRoute.path,
-          reports,
+      // Ne pas ajouter si trop similaire au chemin sécurisé existant
+      const routesToCheck = safeRoutes.slice(1); // Tous sauf l'itinéraire principal
+      if (routesToCheck.length === 0 || !routesToCheck.some(route => helpers.isRouteSimilar(maxSafetyPath, route.path))) {
+        const maxSafetyStats = await safetyCalculator.calculateSafetyScore(
+          maxSafetyPath,
           userPreferences
         );
         
-        // Ne pas ajouter si trop similaire au saferPath
-        if (!isRouteSimilar(maxSafetyPath, saferPath)) {
-          const maxSafetyStats = await safetyCalculator.calculateSafetyScore(
-            maxSafetyPath,
-            userPreferences
-          );
-          
-          const maxSafetyDistance = calculateTotalPathLength(maxSafetyPath);
-          const maxSafetyDuration = Math.round((maxSafetyDistance / 5) * 60);
-          
-          safeRoutes.push({
-            id: `route_${safeRoutes.length}`,
-            name: 'Priorité sécurité',
-            origin: {
-              lat: originCoords.lat,
-              lng: originCoords.lng,
-              formattedAddress: originCoords.formattedAddress || null
-            },
-            destination: {
-              lat: destinationCoords.lat,
-              lng: destinationCoords.lng,
-              formattedAddress: destinationCoords.formattedAddress || null
-            },
-            distance: maxSafetyDistance,
-            duration: maxSafetyDuration,
-            path: maxSafetyPath,
-            steps: [],
-            safetyScore: maxSafetyStats.safetyScore,
-            safetyFactors: maxSafetyStats.safetyFactors,
-            hotspots: maxSafetyStats.hotspots.slice(0, 5),
-            summary: 'Parcours maximisant la sécurité'
-          });
-        }
+        const maxSafetyDistance = helpers.calculateTotalPathLength(maxSafetyPath);
+        const maxSafetyDuration = Math.round((maxSafetyDistance / 5) * 60);
+        
+        safeRoutes.push({
+          id: `route_${safeRoutes.length}`,
+          name: 'Priorité sécurité',
+          origin: {
+            lat: originCoords.lat,
+            lng: originCoords.lng,
+            formattedAddress: originCoords.formattedAddress || null
+          },
+          destination: {
+            lat: destinationCoords.lat,
+            lng: destinationCoords.lng,
+            formattedAddress: destinationCoords.formattedAddress || null
+          },
+          distance: maxSafetyDistance,
+          duration: maxSafetyDuration,
+          path: maxSafetyPath,
+          steps: [],
+          safetyScore: maxSafetyStats.safetyScore,
+          safetyFactors: maxSafetyStats.safetyFactors,
+          hotspots: maxSafetyStats.hotspots.slice(0, 5),
+          summary: 'Parcours maximisant la sécurité'
+        });
       }
     }
     
-    // Si l'itinéraire initial a une bonne note de sécurité et qu'on a un second itinéraire de l'API
+    // Si l'API a retourné un second itinéraire, l'ajouter également
     if (initialRoutes.length > 1) {
       const alternateRoute = initialRoutes[1];
       
@@ -248,7 +260,13 @@ exports.getSafeRoutes = async (req, res) => {
   }
 };
 
-// NOUVELLE FONCTION: Récupérer des rapports améliorés avec pondération par âge
+/**
+ * Récupérer des rapports améliorés avec pondération par âge
+ * @param {Object} origin - Point d'origine {lat, lng}
+ * @param {Object} destination - Point de destination {lat, lng}
+ * @param {Number} buffer - Marge autour de la zone
+ * @returns {Array} Signalements pondérés
+ */
 async function getEnhancedReports(origin, destination, buffer = 0.005) {
   try {
     // Trouver les limites de la zone
@@ -273,17 +291,17 @@ async function getEnhancedReports(origin, destination, buffer = 0.005) {
         { temporary: false },
         { temporary: true, expiresAt: { $gt: new Date() } }
       ],
-      // AMÉLIORATION: Filtrer par âge du rapport (ne garder que les rapports récents)
-      createdAt: { $gt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } // 30 jours
+      // Filtrer par âge du rapport (ne garder que les rapports récents)
+      createdAt: { $gt: new Date(Date.now() - config.SAFETY_CONFIG.REPORT_VALIDITY_DAYS * 24 * 60 * 60 * 1000) }
     }).sort({ severity: -1 }); // Prioriser les signalements les plus graves
     
-    // AMÉLIORATION: Pondérer les rapports selon leur âge
+    // Pondérer les rapports selon leur âge
     return reports.map(report => {
       // Calculer l'âge du rapport en jours
       const ageInDays = (Date.now() - new Date(report.createdAt).getTime()) / (24 * 60 * 60 * 1000);
       
       // Facteur de pondération: diminue avec l'âge (1.0 pour les rapports récents, 0.5 pour les plus anciens)
-      const ageFactor = Math.max(0.5, 1 - (ageInDays / 30));
+      const ageFactor = Math.max(0.5, 1 - (ageInDays / config.SAFETY_CONFIG.REPORT_VALIDITY_DAYS));
       
       // Appliquer le facteur d'âge à la sévérité
       return {
@@ -298,37 +316,21 @@ async function getEnhancedReports(origin, destination, buffer = 0.005) {
   }
 }
 
-// NOUVELLE FONCTION: Générer une route plus sûre avec des améliorations
-async function generateEnhancedSaferRoute(originalPath, reports, userPreferences) {
-  try {
-    // Utiliser la fonction existante du module safetyCalculator
-    const saferPath = await safetyCalculator.generateSaferRoute(originalPath, reports, userPreferences);
-    
-    // S'assurer que la route n'est pas trop longue (max 20% plus longue que l'original)
-    const originalLength = calculateTotalPathLength(originalPath);
-    const newLength = calculateTotalPathLength(saferPath);
-    
-    if (newLength > originalLength * 1.2) {
-      // Trouver un équilibre entre sûreté et longueur
-      return findDangerousSegmentsAndCreateAlternatives(originalPath, reports, userPreferences, 0.15);
-    }
-    
-    return saferPath;
-  } catch (error) {
-    console.error('Erreur lors de la génération de route sécurisée améliorée:', error);
-    return originalPath;
-  }
-}
-
-// NOUVELLE FONCTION: Générer une route maximisant la sécurité (détours plus importants)
-async function generateMaxSafetyRoute(originalPath, reports, userPreferences) {
+/**
+ * Génère un itinéraire maximisant la sécurité avec des détours plus importants
+ * @param {Array} originalPath - Chemin original
+ * @param {Array} reports - Signalements
+ * @param {Object} userPreferences - Préférences utilisateur
+ * @returns {Array} Chemin alternatif
+ */
+function generateMaxSafetyRoute(originalPath, reports, userPreferences) {
   try {
     // Identifier les sections dangereuses
     const dangerousSections = findDangerousSections(originalPath, reports);
     
-    // Si pas de sections dangereuses, utiliser la route sécurisée standard
+    // Si pas de sections dangereuses, retourner le chemin original
     if (dangerousSections.length === 0) {
-      return await safetyCalculator.generateSaferRoute(originalPath, reports, userPreferences);
+      return originalPath;
     }
     
     // Créer une route avec des détours plus prononcés
@@ -340,7 +342,7 @@ async function generateMaxSafetyRoute(originalPath, reports, userPreferences) {
         maxSafetyPath, 
         section, 
         reports,
-        40 // Déviation plus importante (40m au lieu de 15m par défaut)
+        40 // Déviation plus importante (40m)
       );
       
       maxSafetyPath = replacePathSection(
@@ -352,87 +354,19 @@ async function generateMaxSafetyRoute(originalPath, reports, userPreferences) {
     }
     
     // Lisser le chemin pour éviter les zigzags
-    return smoothPath(maxSafetyPath);
+    return helpers.smoothPath(maxSafetyPath);
   } catch (error) {
     console.error('Erreur lors de la génération de route de sécurité maximale:', error);
-    // En cas d'erreur, retourner la route sécurisée standard
-    return await safetyCalculator.generateSaferRoute(originalPath, reports, userPreferences);
+    return originalPath;
   }
 }
 
-// NOUVELLE FONCTION: Vérifier si deux routes sont similaires
-function isRouteSimilar(route1, route2, threshold = 0.05) {
-  // Échantillonner les routes pour avoir le même nombre de points
-  const samples = 10;
-  const sampled1 = sampleRoute(route1, samples);
-  const sampled2 = sampleRoute(route2, samples);
-  
-  // Calculer la somme des distances entre points correspondants
-  let totalDifference = 0;
-  for (let i = 0; i < samples; i++) {
-    totalDifference += calculateDistance(
-      sampled1[i].lat, sampled1[i].lng,
-      sampled2[i].lat, sampled2[i].lng
-    );
-  }
-  
-  // Calculer la différence moyenne
-  const avgDifference = totalDifference / samples;
-  
-  // Considérer comme similaire si moins de X km de différence en moyenne
-  return avgDifference < threshold;
-}
-
-// Échantillonner une route pour avoir un nombre spécifique de points
-function sampleRoute(route, numSamples) {
-  const result = [];
-  
-  // Si la route a moins de points que demandé
-  if (route.length <= numSamples) {
-    return route;
-  }
-  
-  // Calculer l'intervalle d'échantillonnage
-  const step = (route.length - 1) / (numSamples - 1);
-  
-  for (let i = 0; i < numSamples; i++) {
-    const index = Math.round(i * step);
-    result.push(route[Math.min(index, route.length - 1)]);
-  }
-  
-  return result;
-}
-
-// Calculer la longueur totale d'un chemin
-function calculateTotalPathLength(path) {
-  let totalLength = 0;
-  for (let i = 1; i < path.length; i++) {
-    totalLength += calculateDistance(
-      path[i-1].lat, path[i-1].lng,
-      path[i].lat, path[i].lng
-    );
-  }
-  return totalLength;
-}
-
-// Calculer la distance entre deux points (formule de Haversine)
-const calculateDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 6371; // Rayon de la Terre en km
-  const dLat = deg2rad(lat2 - lat1);
-  const dLon = deg2rad(lon2 - lon1);
-  const a =
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
-    Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c; // Distance en km
-};
-
-const deg2rad = (deg) => {
-  return deg * (Math.PI/180);
-};
-
-// NOUVELLE FONCTION: Trouver les sections dangereuses d'un chemin
+/**
+ * Trouve les sections dangereuses d'un chemin
+ * @param {Array} path - Chemin
+ * @param {Array} reports - Signalements
+ * @returns {Array} Sections dangereuses {startIndex, endIndex}
+ */
 function findDangerousSections(path, reports) {
   const sections = [];
   let currentSection = null;
@@ -449,21 +383,13 @@ function findDangerousSections(path, reports) {
         lng: report.location.coordinates[0] 
       };
       
-      const distance = calculateDistance(
+      const distance = helpers.calculateDistance(
         point.lat, point.lng,
         reportPoint.lat, reportPoint.lng
       ) * 1000; // convertir en mètres
       
       // Obtenir le rayon de danger pour cette catégorie
-      const DANGER_RADIUS_BY_CATEGORY = {
-        'poor_lighting': 5,
-        'unsafe_area': 50,
-        'construction': 5,
-        'obstacle': 10,
-        'bad_weather': 100
-      };
-      
-      const dangerRadius = DANGER_RADIUS_BY_CATEGORY[report.category] || 30;
+      const dangerRadius = config.SAFETY_CONFIG.DANGER_RADIUS[report.category] || 30;
       
       // Si le point est dans la zone de danger
       if (distance <= dangerRadius) {
@@ -499,32 +425,14 @@ function findDangerousSections(path, reports) {
   return sections;
 }
 
-// NOUVELLE FONCTION: Trouver les segments dangereux et créer des alternatives
-function findDangerousSegmentsAndCreateAlternatives(originalPath, reports, userPreferences, maxDeviationFactor = 0.1) {
-  const dangerousSections = findDangerousSections(originalPath, reports);
-  
-  // Si pas de sections dangereuses, retourner la route originale
-  if (dangerousSections.length === 0) {
-    return originalPath;
-  }
-  
-  let resultPath = [...originalPath];
-  
-  // Traiter chaque section dangereuse
-  for (const section of dangerousSections) {
-    const alternativeSection = createAlternativeSection(
-      resultPath, section, reports, 20 * maxDeviationFactor
-    );
-    
-    resultPath = replacePathSection(
-      resultPath, section.startIndex, section.endIndex, alternativeSection
-    );
-  }
-  
-  return smoothPath(resultPath);
-}
-
-// NOUVELLE FONCTION: Créer une section alternative pour éviter une zone dangereuse
+/**
+ * Crée une section de chemin alternative pour éviter une zone dangereuse
+ * @param {Array} originalPath - Chemin original
+ * @param {Object} section - Section dangereuse {startIndex, endIndex}
+ * @param {Array} reports - Signalements
+ * @param {Number} maxDeviation - Déviation maximale en mètres
+ * @returns {Array} Section alternative
+ */
 function createAlternativeSection(originalPath, section, reports, maxDeviation = 15) {
   const startPoint = originalPath[section.startIndex];
   const endPoint = originalPath[section.endIndex];
@@ -578,21 +486,13 @@ function createAlternativeSection(originalPath, section, reports, maxDeviation =
           lng: report.location.coordinates[0] 
         };
         
-        const distance = calculateDistance(
+        const distance = helpers.calculateDistance(
           testPoint.lat, testPoint.lng,
           reportPoint.lat, reportPoint.lng
         ) * 1000; // convertir en mètres
         
         // Obtenir le rayon de danger pour cette catégorie
-        const DANGER_RADIUS_BY_CATEGORY = {
-          'poor_lighting': 5,
-          'unsafe_area': 50,
-          'construction': 5,
-          'obstacle': 10,
-          'bad_weather': 100
-        };
-        
-        const dangerRadius = DANGER_RADIUS_BY_CATEGORY[report.category] || 30;
+        const dangerRadius = config.SAFETY_CONFIG.DANGER_RADIUS[report.category] || 30;
         
         // Réduire le score si proche d'un danger
         if (distance <= dangerRadius * 2) {
@@ -635,7 +535,14 @@ function createAlternativeSection(originalPath, section, reports, maxDeviation =
   return alternativeSection;
 }
 
-// NOUVELLE FONCTION: Remplacer une section de chemin
+/**
+ * Remplace une section de chemin par une section alternative
+ * @param {Array} path - Chemin original
+ * @param {Number} startIndex - Index de début
+ * @param {Number} endIndex - Index de fin
+ * @param {Array} replacementSection - Section de remplacement
+ * @returns {Array} Chemin modifié
+ */
 function replacePathSection(path, startIndex, endIndex, replacementSection) {
   const result = [];
   
@@ -657,43 +564,11 @@ function replacePathSection(path, startIndex, endIndex, replacementSection) {
   return result;
 }
 
-// NOUVELLE FONCTION: Lisser un chemin pour éviter les zigzags
-function smoothPath(path) {
-  if (path.length <= 2) return path;
-  
-  const result = [path[0]]; // Conserver le premier point
-  
-  // Utiliser une fenêtre glissante pour lisser les points
-  const WINDOW_SIZE = 3;
-  
-  for (let i = 1; i < path.length - 1; i++) {
-    // Calculer la position moyenne sur une fenêtre
-    let sumLat = 0;
-    let sumLng = 0;
-    let count = 0;
-    
-    const start = Math.max(0, i - Math.floor(WINDOW_SIZE/2));
-    const end = Math.min(path.length - 1, i + Math.floor(WINDOW_SIZE/2));
-    
-    for (let j = start; j <= end; j++) {
-      sumLat += path[j].lat;
-      sumLng += path[j].lng;
-      count++;
-    }
-    
-    // Ajouter le point lissé
-    result.push({
-      lat: sumLat / count,
-      lng: sumLng / count
-    });
-  }
-  
-  result.push(path[path.length - 1]); // Conserver le dernier point
-  return result;
-}
-
-// Le reste du contrôleur reste inchangé
-// Obtenir un itinéraire spécifique
+/**
+ * Obtenir un itinéraire spécifique
+ * @param {Object} req - Requête HTTP
+ * @param {Object} res - Réponse HTTP
+ */
 exports.getRoute = async (req, res) => {
   try {
     const route = await Route.findById(req.params.id);
@@ -718,7 +593,11 @@ exports.getRoute = async (req, res) => {
   }
 };
 
-// Sauvegarder un itinéraire favori
+/**
+ * Sauvegarder un itinéraire favori
+ * @param {Object} req - Requête HTTP
+ * @param {Object} res - Réponse HTTP
+ */
 exports.saveFavorite = async (req, res) => {
   try {
     const { routeId, routeData } = req.body;
@@ -759,7 +638,11 @@ exports.saveFavorite = async (req, res) => {
   }
 };
 
-// Obtenir les itinéraires favoris de l'utilisateur
+/**
+ * Obtenir les itinéraires favoris de l'utilisateur
+ * @param {Object} req - Requête HTTP
+ * @param {Object} res - Réponse HTTP
+ */
 exports.getFavorites = async (req, res) => {
   try {
     const favorites = await Route.find({ 
@@ -781,7 +664,11 @@ exports.getFavorites = async (req, res) => {
   }
 };
 
-// Supprimer un itinéraire favori
+/**
+ * Supprimer un itinéraire favori
+ * @param {Object} req - Requête HTTP
+ * @param {Object} res - Réponse HTTP
+ */
 exports.removeFavorite = async (req, res) => {
   try {
     const favorite = await Route.findOne({ 

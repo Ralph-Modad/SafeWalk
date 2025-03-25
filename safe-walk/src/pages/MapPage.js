@@ -6,6 +6,7 @@ import RouteSearch from '../components/map/RouteSearch';
 import RouteList from '../components/map/RouteList';
 import '../styles/MapPage.css';
 
+
 // Définir les bibliothèques Google Maps à charger
 const libraries = ['places'];
 
@@ -20,6 +21,7 @@ const MapPage = () => {
 
   // Obtenir la clé API depuis les variables d'environnement
   const googleMapsApiKey = "";
+  console.log("Clé API Google Maps:", googleMapsApiKey);
 
   // Charger l'API Google Maps avec la clé API
   const { isLoaded, loadError } = useJsApiLoader({

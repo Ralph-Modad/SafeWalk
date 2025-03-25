@@ -1,25 +1,17 @@
 // backend/services/safetyCalculator.js
 const Report = require('../models/Report');
+const config = require('../config/config');
+const helpers = require('../utils/helpers');
 
-// Configuration des rayons de danger par type de signalement (en mètres)
-const DANGER_RADIUS_BY_CATEGORY = {
-  'poor_lighting': 5,         // Éclairage insuffisant: impact très localisé
-  'unsafe_area': 50,           // Zone dangereuse: impact plus large
-  'construction': 5,          // Construction: obstacle localisé
-  'obstacle': 10,              // Obstacle: très localisé
-  'bad_weather': 100           // Mauvaises conditions météo: large zone
-};
+// Utiliser les constantes de configuration
+const { DANGER_RADIUS, AVOIDANCE_FACTOR } = config.SAFETY_CONFIG;
 
-// Facteur de pénalité par catégorie (plus le nombre est élevé, plus l'algo essaiera d'éviter)
-const AVOIDANCE_FACTOR_BY_CATEGORY = {
-  'poor_lighting': 1.2,         // Éclairage: moins important d'éviter (réduit pour éviter les détours excessifs)
-  'unsafe_area': 2.0,           // Zone dangereuse: important d'éviter (réduit également)
-  'construction': 1.8,          // Construction: important d'éviter
-  'obstacle': 2.0,              // Obstacle: important d'éviter
-  'bad_weather': 1.0            // Mauvaises conditions météo: moins critique
-};
-
-// Calculer le score de sécurité d'un itinéraire
+/**
+ * Calcule le score de sécurité d'un itinéraire
+ * @param {Array} path - Tableau de points {lat, lng}
+ * @param {Object} userPreferences - Préférences de l'utilisateur
+ * @returns {Object} Score et facteurs de sécurité
+ */
 exports.calculateSafetyScore = async (path, userPreferences) => {
   try {
     // Paramètres par défaut si non spécifiés
@@ -28,7 +20,7 @@ exports.calculateSafetyScore = async (path, userPreferences) => {
       avoidIsolatedAreas: userPreferences?.avoidIsolatedAreas || true
     };
     
-    // Récupérer les signalements dans un large rayon autour du chemin
+    // Récupérer les signalements dans un rayon autour du chemin
     const reports = await getReportsAlongPath(path, 0.001); // ~100 mètres
     
     // Identifier les points chauds (zones à forte concentration de signalements)
@@ -46,10 +38,9 @@ exports.calculateSafetyScore = async (path, userPreferences) => {
     
     // Réduire le score en fonction de la gravité et de la densité des signalements
     if (reports.length > 0) {
-      // Pondérer les signalements par gravité, proximité au chemin, et type de danger
+      // Pondérer les signalements par gravité et proximité au chemin
       const weightedReports = reports.map(report => {
-        // Obtenir le rayon de danger pour cette catégorie
-        const dangerRadius = DANGER_RADIUS_BY_CATEGORY[report.category] || 5; // valeur par défaut: 30m
+        const dangerRadius = DANGER_RADIUS[report.category] || 30;
         
         // Calculer la distance minimale du rapport au chemin (en km)
         const minDistance = calculateMinDistanceToPath(
@@ -68,7 +59,7 @@ exports.calculateSafetyScore = async (path, userPreferences) => {
         }
         
         // Obtenir le facteur d'évitement pour cette catégorie
-        const avoidanceFactor = AVOIDANCE_FACTOR_BY_CATEGORY[report.category] || 1.0;
+        const avoidanceFactor = AVOIDANCE_FACTOR[report.category] || 1.0;
         
         return {
           ...report.toObject(),
@@ -88,7 +79,6 @@ exports.calculateSafetyScore = async (path, userPreferences) => {
         const averageWeight = totalWeight / significantReports.length;
         
         // Réduire le score en fonction de la moyenne pondérée
-        // Limiter la réduction à 6 points maximum pour garder une échelle cohérente
         const reportImpact = Math.min(averageWeight * 1.2, 6);
         baseScore -= reportImpact;
         
@@ -153,7 +143,13 @@ exports.calculateSafetyScore = async (path, userPreferences) => {
   }
 };
 
-// Générer un itinéraire alternatif qui évite les zones dangereuses
+/**
+ * Génère un itinéraire alternatif qui évite les zones dangereuses
+ * @param {Array} originalPath - Chemin original
+ * @param {Array} reports - Signalements de danger
+ * @param {Object} userPreferences - Préférences utilisateur
+ * @returns {Array} Chemin alternatif
+ */
 exports.generateSaferRoute = async (originalPath, reports, userPreferences) => {
   // Si pas de rapports de sécurité, retourner le chemin original
   if (!reports || reports.length === 0) {
@@ -164,7 +160,7 @@ exports.generateSaferRoute = async (originalPath, reports, userPreferences) => {
     // Filtrer les reports pour ne garder que ceux qui sont vraiment pertinents
     const relevantReports = reports.filter(report => {
       // Obtenir le rayon de danger pour cette catégorie
-      const dangerRadius = DANGER_RADIUS_BY_CATEGORY[report.category] || 30;
+      const dangerRadius = DANGER_RADIUS[report.category] || 30;
       
       // Pour les problèmes d'éclairage, on ne les évite que s'ils sont sévères (>= 4)
       if (report.category === 'poor_lighting' && report.severity < 4) {
@@ -209,12 +205,12 @@ exports.generateSaferRoute = async (originalPath, reports, userPreferences) => {
           lng: report.location.coordinates[0] 
         };
         
-        const distance = calculateDistance(
+        const distance = helpers.calculateDistance(
           point.lat, point.lng,
           reportPoint.lat, reportPoint.lng
         ) * 1000; // convertir en mètres
         
-        const dangerRadius = DANGER_RADIUS_BY_CATEGORY[report.category] || 30;
+        const dangerRadius = DANGER_RADIUS[report.category] || 30;
         
         // Si le point est dans la zone de danger
         if (distance <= dangerRadius) {
@@ -269,7 +265,7 @@ exports.generateSaferRoute = async (originalPath, reports, userPreferences) => {
               lng: report.location.coordinates[0] 
             };
             
-            const distance = calculateDistance(
+            const distance = helpers.calculateDistance(
               deviationPoint.lat, deviationPoint.lng,
               reportPoint.lat, reportPoint.lng
             ) * 1000; // convertir en mètres
@@ -297,11 +293,11 @@ exports.generateSaferRoute = async (originalPath, reports, userPreferences) => {
     }
     
     // Lisser le chemin pour éviter les zigzags
-    const smoothedPath = smoothPath(pathPoints);
+    const smoothedPath = helpers.smoothPath(pathPoints);
     
     // Vérifier que le chemin n'est pas devenu trop long
-    const originalLength = calculateTotalPathLength(originalPath);
-    const newLength = calculateTotalPathLength(smoothedPath);
+    const originalLength = helpers.calculateTotalPathLength(originalPath);
+    const newLength = helpers.calculateTotalPathLength(smoothedPath);
     
     // Si le nouveau chemin est plus de 20% plus long, revenir à l'original
     if (newLength > originalLength * 1.2) {
@@ -316,291 +312,14 @@ exports.generateSaferRoute = async (originalPath, reports, userPreferences) => {
   }
 };
 
-// Lisser un chemin pour éliminer les zigzags
-function smoothPath(path) {
-  if (path.length <= 2) return path;
-  
-  const result = [path[0]]; // Conserver le premier point
-  
-  // Utiliser une fenêtre glissante pour lisser les points
-  const WINDOW_SIZE = 3;
-  
-  for (let i = 1; i < path.length - 1; i++) {
-    // Calculer la position moyenne sur une fenêtre
-    let sumLat = 0;
-    let sumLng = 0;
-    let count = 0;
-    
-    const start = Math.max(0, i - Math.floor(WINDOW_SIZE/2));
-    const end = Math.min(path.length - 1, i + Math.floor(WINDOW_SIZE/2));
-    
-    for (let j = start; j <= end; j++) {
-      sumLat += path[j].lat;
-      sumLng += path[j].lng;
-      count++;
-    }
-    
-    // Ajouter le point lissé
-    result.push({
-      lat: sumLat / count,
-      lng: sumLng / count
-    });
-  }
-  
-  result.push(path[path.length - 1]); // Conserver le dernier point
-  return result;
-}
-
-// Calculer la longueur totale d'un chemin
-function calculateTotalPathLength(path) {
-  let totalLength = 0;
-  for (let i = 1; i < path.length; i++) {
-    totalLength += calculateDistance(
-      path[i-1].lat, path[i-1].lng,
-      path[i].lat, path[i].lng
-    );
-  }
-  return totalLength;
-}
-
-// Trouver les sections dangereuses d'un chemin
-function findDangerousSections(path, reports) {
-  const sections = [];
-  let currentSection = null;
-  
-  // Pour chaque point du chemin, vérifier s'il est dans une zone dangereuse
-  for (let i = 0; i < path.length; i++) {
-    const point = path[i];
-    let isDangerous = false;
-    
-    // Vérifier tous les reports
-    for (const report of reports) {
-      const reportPoint = { 
-        lat: report.location.coordinates[1], 
-        lng: report.location.coordinates[0] 
-      };
-      
-      const distance = calculateDistance(
-        point.lat, point.lng,
-        reportPoint.lat, reportPoint.lng
-      ) * 1000; // convertir en mètres
-      
-      const dangerRadius = DANGER_RADIUS_BY_CATEGORY[report.category] || 30;
-      
-      // Si le point est dans la zone de danger
-      if (distance <= dangerRadius) {
-        isDangerous = true;
-        break;
-      }
-    }
-    
-    // Gérer les sections dangereuses
-    if (isDangerous) {
-      if (!currentSection) {
-        currentSection = {
-          startIndex: Math.max(0, i - 1), // Commencer un point avant
-          endIndex: i
-        };
-      } else {
-        currentSection.endIndex = i;
-      }
-    } else if (currentSection && i > currentSection.endIndex) {
-      // Ajouter un point après la fin de la section dangereuse
-      currentSection.endIndex = Math.min(path.length - 1, i);
-      sections.push(currentSection);
-      currentSection = null;
-    }
-  }
-  
-  // Ajouter la dernière section si elle existe
-  if (currentSection) {
-    currentSection.endIndex = Math.min(path.length - 1, currentSection.endIndex + 1);
-    sections.push(currentSection);
-  }
-  
-  return sections;
-}
-
-// Calculer la longueur d'une section de chemin
-function calculateSectionLength(path, startIndex, endIndex) {
-  let length = 0;
-  for (let i = startIndex + 1; i <= endIndex; i++) {
-    length += calculateDistance(
-      path[i-1].lat, path[i-1].lng,
-      path[i].lat, path[i].lng
-    );
-  }
-  return length;
-}
-
-// Créer une section alternative pour éviter une zone dangereuse
-function createAlternativeSection(originalPath, section, reports) {
-  const startPoint = originalPath[section.startIndex];
-  const endPoint = originalPath[section.endIndex];
-  
-  // Calculer le point milieu direct
-  const midPointDirect = {
-    lat: (startPoint.lat + endPoint.lat) / 2,
-    lng: (startPoint.lng + endPoint.lng) / 2
-  };
-  
-  // Calculer la direction principale
-  const dirVector = {
-    lat: endPoint.lat - startPoint.lat,
-    lng: endPoint.lng - startPoint.lng
-  };
-  
-  // Calculer un vecteur perpendiculaire
-  const perpVector = {
-    lat: -dirVector.lng,
-    lng: dirVector.lat
-  };
-  
-  // Normaliser le vecteur perpendiculaire
-  const magnitude = Math.sqrt(perpVector.lat * perpVector.lat + perpVector.lng * perpVector.lng);
-  if (magnitude > 0) {
-    perpVector.lat /= magnitude;
-    perpVector.lng /= magnitude;
-  }
-  
-  // Déterminer la direction optimale pour le détour
-  let bestSide = 1; // par défaut, vers la droite
-  let maxSafetyScore = -Infinity;
-  
-  // Essayer les deux côtés et choisir le plus sûr
-  for (const side of [-1, 1]) {
-    let score = 0;
-    
-    // Tester plusieurs amplitudes de déviation
-    for (const deviationFactor of [10, 20, 30]) { // en mètres
-      const testPoint = {
-        lat: midPointDirect.lat + side * perpVector.lat * (deviationFactor / 111000),
-        lng: midPointDirect.lng + side * perpVector.lng * (deviationFactor / 111000) * Math.cos(midPointDirect.lat * Math.PI / 180)
-      };
-      
-      // Calculer la sécurité de ce point
-      let pointScore = 10; // score de base
-      
-      for (const report of reports) {
-        const reportPoint = { 
-          lat: report.location.coordinates[1], 
-          lng: report.location.coordinates[0] 
-        };
-        
-        const distance = calculateDistance(
-          testPoint.lat, testPoint.lng,
-          reportPoint.lat, reportPoint.lng
-        ) * 1000; // convertir en mètres
-        
-        const dangerRadius = DANGER_RADIUS_BY_CATEGORY[report.category] || 30;
-        
-        // Réduire le score si proche d'un danger
-        if (distance <= dangerRadius * 2) {
-          const factor = 1 - Math.min(1, distance / (dangerRadius * 2));
-          pointScore -= report.severity * factor;
-        }
-      }
-      
-      score += pointScore;
-    }
-    
-    // Si ce côté est plus sûr, le choisir
-    if (score > maxSafetyScore) {
-      maxSafetyScore = score;
-      bestSide = side;
-    }
-  }
-  
-  // Créer un détour modéré (15 mètres, beaucoup moins qu'avant)
-  const deviationFactor = 15 / 111000; // conversion approx de mètres en degrés
-  const midPoint = {
-    lat: midPointDirect.lat + bestSide * perpVector.lat * deviationFactor,
-    lng: midPointDirect.lng + bestSide * perpVector.lng * deviationFactor * Math.cos(midPointDirect.lat * Math.PI / 180)
-  };
-  
-  // Créer un chemin alternatif avec une courbe de Bézier quadratique
-  const numPoints = section.endIndex - section.startIndex + 1;
-  const alternativeSection = [];
-  
-  for (let i = 0; i < numPoints; i++) {
-    const t = i / (numPoints - 1);
-    
-    // Courbe de Bézier quadratique
-    alternativeSection.push({
-      lat: (1-t)*(1-t)*startPoint.lat + 2*(1-t)*t*midPoint.lat + t*t*endPoint.lat,
-      lng: (1-t)*(1-t)*startPoint.lng + 2*(1-t)*t*midPoint.lng + t*t*endPoint.lng
-    });
-  }
-  
-  return alternativeSection;
-}
-
-// Remplacer une section de chemin par une alternative
-function replacePathSection(path, startIndex, endIndex, replacementSection) {
-  const result = [];
-  
-  // Ajouter les points avant la section
-  for (let i = 0; i < startIndex; i++) {
-    result.push(path[i]);
-  }
-  
-  // Ajouter la section de remplacement
-  for (const point of replacementSection) {
-    result.push(point);
-  }
-  
-  // Ajouter les points après la section
-  for (let i = endIndex + 1; i < path.length; i++) {
-    result.push(path[i]);
-  }
-  
-  return result;
-}
-
-// Calculer la distance perpendiculaire d'un point à une ligne
-function calculatePerpendicularDistance(point, lineStart, lineEnd) {
-  // Vecteur de la ligne
-  const lineVector = {
-    lat: lineEnd.lat - lineStart.lat,
-    lng: lineEnd.lng - lineStart.lng
-  };
-  
-  // Vecteur du point de départ au point
-  const pointVector = {
-    lat: point.lat - lineStart.lat,
-    lng: point.lng - lineStart.lng
-  };
-  
-  // Calculer la projection sur la ligne
-  const lineLength = Math.sqrt(lineVector.lat * lineVector.lat + lineVector.lng * lineVector.lng);
-  
-  if (lineLength === 0) return 0;
-  
-  // Normaliser le vecteur de la ligne
-  const unitLineVector = {
-    lat: lineVector.lat / lineLength,
-    lng: lineVector.lng / lineLength
-  };
-  
-  // Produit scalaire
-  const dotProduct = pointVector.lat * unitLineVector.lat + pointVector.lng * unitLineVector.lng;
-  
-  // Projection du point sur la ligne
-  const projection = {
-    lat: lineStart.lat + dotProduct * unitLineVector.lat,
-    lng: lineStart.lng + dotProduct * unitLineVector.lng
-  };
-  
-  // Distance du point à sa projection
-  return calculateDistance(point.lat, point.lng, projection.lat, projection.lng);
-}
-
-// Récupérer les signalements le long d'un chemin
-const getReportsAlongPath = async (path, buffer = 0.001) => {
+/**
+ * Récupère les signalements le long d'un chemin
+ * @param {Array} path - Chemin à analyser
+ * @param {Number} buffer - Marge autour du chemin (en degrés)
+ * @returns {Array} Signalements
+ */
+async function getReportsAlongPath(path, buffer = 0.001) {
   try {
-    // Créer un buffer autour du chemin pour trouver les signalements à proximité
-    // Par défaut ~100m en degrés, mais peut être spécifié pour une recherche plus précise
-    
     // Trouver les limites du chemin
     const lats = path.map(point => point.lat);
     const lngs = path.map(point => point.lng);
@@ -624,7 +343,9 @@ const getReportsAlongPath = async (path, buffer = 0.001) => {
       $or: [
         { temporary: false },
         { temporary: true, expiresAt: { $gt: new Date() } }
-      ]
+      ],
+      // Filtrer par âge du rapport (ne garder que les rapports récents)
+      createdAt: { $gt: new Date(Date.now() - config.SAFETY_CONFIG.REPORT_VALIDITY_DAYS * 24 * 60 * 60 * 1000) }
     });
     
     return reports;
@@ -632,10 +353,15 @@ const getReportsAlongPath = async (path, buffer = 0.001) => {
     console.error('Erreur lors de la récupération des signalements:', error);
     return [];
   }
-};
+}
 
-// Identifier les points chauds (zones à forte concentration de signalements) le long du chemin
-const identifyHotspots = (path, reports) => {
+/**
+ * Identifie les points chauds (zones à forte concentration de signalements) le long du chemin
+ * @param {Array} path - Chemin à analyser
+ * @param {Array} reports - Signalements
+ * @returns {Array} Points chauds
+ */
+function identifyHotspots(path, reports) {
   if (reports.length === 0) return [];
   
   // Convertir les coordonnées des rapports pour faciliter le traitement
@@ -657,7 +383,7 @@ const identifyHotspots = (path, reports) => {
     for (const cluster of clusters) {
       // Vérifier si le rapport est à proximité de n'importe quel point du cluster
       for (const point of cluster.points) {
-        const distance = calculateDistance(report.lat, report.lng, point.lat, point.lng);
+        const distance = helpers.calculateDistance(report.lat, report.lng, point.lat, point.lng);
         if (distance < clusterRadius) {
           cluster.points.push(report);
           cluster.totalSeverity += report.severity;
@@ -699,10 +425,16 @@ const identifyHotspots = (path, reports) => {
       categories: Array.from(cluster.categories)
     }))
     .sort((a, b) => b.severity - a.severity);
-};
+}
 
-// Vérifier si un cluster est directement sur le chemin
-const isClusterOnPath = (point, path, tolerance = 0.0002) => {
+/**
+ * Vérifie si un cluster est directement sur le chemin
+ * @param {Object} point - Centre du cluster
+ * @param {Array} path - Chemin
+ * @param {Number} tolerance - Tolérance de distance
+ * @returns {Boolean} True si le cluster est sur le chemin
+ */
+function isClusterOnPath(point, path, tolerance = 0.0002) {
   for (let i = 0; i < path.length - 1; i++) {
     const distance = pointToLineDistance(
       point,
@@ -713,10 +445,15 @@ const isClusterOnPath = (point, path, tolerance = 0.0002) => {
     if (distance < tolerance) return true;
   }
   return false;
-};
+}
 
-// Calculer la distance minimale d'un point à un chemin
-const calculateMinDistanceToPath = (point, path) => {
+/**
+ * Calcule la distance minimale d'un point à un chemin
+ * @param {Array} point - Point [lng, lat]
+ * @param {Array} path - Chemin
+ * @returns {Number} Distance minimale en km
+ */
+function calculateMinDistanceToPath(point, path) {
   // Convertir le point de [lng, lat] à {lat, lng}
   const pointObj = { lat: point[1], lng: point[0] };
   
@@ -734,12 +471,17 @@ const calculateMinDistanceToPath = (point, path) => {
   }
   
   return minDistance;
-};
+}
 
-// Calculer la distance d'un point à une ligne (segment)
-const pointToLineDistance = (point, lineStart, lineEnd) => {
+/**
+ * Calcule la distance d'un point à une ligne (segment)
+ * @param {Object} point - Point {lat, lng}
+ * @param {Object} lineStart - Début du segment {lat, lng}
+ * @param {Object} lineEnd - Fin du segment {lat, lng}
+ * @returns {Number} Distance en km
+ */
+function pointToLineDistance(point, lineStart, lineEnd) {
   // Convertir en coordonnées cartésiennes pour simplifier
-  // Nous utilisons la latitude comme y et la longitude comme x
   const x = point.lng;
   const y = point.lat;
   const x1 = lineStart.lng;
@@ -749,7 +491,7 @@ const pointToLineDistance = (point, lineStart, lineEnd) => {
   
   // Cas où le segment est un point
   if (x1 === x2 && y1 === y2) {
-    return calculateDistance(y, x, y1, x1);
+    return helpers.calculateDistance(y, x, y1, x1);
   }
   
   // Calculer la projection du point sur la ligne
@@ -777,11 +519,17 @@ const pointToLineDistance = (point, lineStart, lineEnd) => {
   }
   
   // Calculer la distance entre le point et le point le plus proche sur la ligne
-  return calculateDistance(y, x, yy, xx);
-};
+  return helpers.calculateDistance(y, x, yy, xx);
+}
 
-// Calculer un score d'éclairage en fonction de l'heure et des signalements
-const calculateLightingScore = (path, reports, preferences) => {
+/**
+ * Calcule un score d'éclairage en fonction de l'heure et des signalements
+ * @param {Array} path - Chemin
+ * @param {Array} reports - Signalements
+ * @param {Object} preferences - Préférences utilisateur
+ * @returns {Number} Score d'éclairage (0-10)
+ */
+function calculateLightingScore(path, reports, preferences) {
   // Par défaut, l'éclairage est bon
   let score = 8;
   
@@ -820,10 +568,16 @@ const calculateLightingScore = (path, reports, preferences) => {
   }
   
   return Math.max(2, score);
-};
+}
 
-// Calculer un score de fréquentation en fonction de l'heure et des signalements
-const calculateCrowdednessScore = (path, reports, preferences) => {
+/**
+ * Calcule un score de fréquentation en fonction de l'heure et des signalements
+ * @param {Array} path - Chemin
+ * @param {Array} reports - Signalements
+ * @param {Object} preferences - Préférences utilisateur
+ * @returns {Number} Score de fréquentation (0-10)
+ */
+function calculateCrowdednessScore(path, reports, preferences) {
   // Par défaut, considérons une fréquentation moyenne
   let score = 6;
   
@@ -866,20 +620,19 @@ const calculateCrowdednessScore = (path, reports, preferences) => {
   }
   
   return Math.max(1, score);
-};
+}
 
-// Calculer la densité des signalements le long d'un chemin
-const calculateReportDensity = (reports, path) => {
+/**
+ * Calcule la densité des signalements le long d'un chemin
+ * @param {Array} reports - Signalements
+ * @param {Array} path - Chemin
+ * @returns {Number} Score de densité (0-10)
+ */
+function calculateReportDensity(reports, path) {
   if (reports.length === 0) return 10; // Pas de signalements = score parfait
   
   // Calculer la longueur approximative du chemin
-  let pathLength = 0;
-  for (let i = 1; i < path.length; i++) {
-    pathLength += calculateDistance(
-      path[i-1].lat, path[i-1].lng,
-      path[i].lat, path[i].lng
-    );
-  }
+  let pathLength = helpers.calculateTotalPathLength(path);
   
   // Calculer la densité (signalements par km)
   const density = reports.length / (pathLength || 1);
@@ -896,21 +649,4 @@ const calculateReportDensity = (reports, path) => {
   if (density < 7) return 2;
   if (density < 10) return 1;
   return 0;
-};
-
-// Calculer la distance entre deux points (formule de Haversine)
-const calculateDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 6371; // Rayon de la Terre en km
-  const dLat = deg2rad(lat2 - lat1);
-  const dLon = deg2rad(lon2 - lon1);
-  const a =
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
-    Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c; // Distance en km
-};
-
-const deg2rad = (deg) => {
-  return deg * (Math.PI/180);
-};
+}
