@@ -34,7 +34,7 @@ const handleSubmit = async (e) => {
 
   return (
     <div className="login-form-container">
-      <h2>Login to SafeWalk</h2>
+      <h2>Login to SafePath</h2>
       {error && <div className="error-message">{error}</div>}
       <form onSubmit={handleSubmit} className="login-form">
         <div className="form-group">

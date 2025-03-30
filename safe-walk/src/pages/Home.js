@@ -9,7 +9,7 @@ const Home = () => {
   return (
     <div className="home-container">
       <section className="hero">
-        <h1>SafeWalk</h1>
+        <h1>SafePath</h1>
         <p className="tagline">Navigate your city with confidence and safety</p>
         
         {isAuthenticated ? (
@@ -29,7 +29,7 @@ const Home = () => {
       </section>
 
       <section className="features">
-        <h2>Why Choose SafeWalk?</h2>
+        <h2>Why Choose SafePath?</h2>
         
         <div className="feature-grid">
           <div className="feature-card">
@@ -59,13 +59,13 @@ const Home = () => {
       </section>
 
       <section className="how-it-works">
-        <h2>How SafeWalk Works</h2>
+        <h2>How SafePath Works</h2>
         
         <div className="steps">
           <div className="step">
             <div className="step-number">1</div>
             <h3>Create an Account</h3>
-            <p>Sign up to access all SafeWalk features and join our community.</p>
+            <p>Sign up to access all SafePath features and join our community.</p>
           </div>
           
           <div className="step">
@@ -90,7 +90,7 @@ const Home = () => {
 
       <section className="cta">
         <h2>Ready to Walk Safer?</h2>
-        <p>Join SafeWalk today and experience a new way to navigate your city.</p>
+        <p>Join SafePath today and experience a new way to navigate your city.</p>
         <Link to="/register" className="btn btn-large">Get Started</Link>
       </section>
     </div>

@@ -13,7 +13,7 @@ const LoginPage = () => {
 
   return (
     <div className="login-page">
-      <h1>Welcome to SafeWalk</h1>
+      <h1>Welcome to SafePath</h1>
       <p>Login to access safe navigation features</p>
       <LoginForm />
     </div>

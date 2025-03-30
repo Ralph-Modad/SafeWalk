@@ -13,7 +13,7 @@ const RegisterPage = () => {
 
   return (
     <div className="register-page">
-      <h1>Join SafeWalk</h1>
+      <h1>Join SafePath</h1>
       <p>Create an account to access all features</p>
       <RegisterForm />
     </div>

@@ -1,6 +1,6 @@
-# SafeWalk
+# SafePath
 
-SafeWalk is a web application that helps pedestrians navigate cities with a focus on safety rather than just travel time. The application uses community contributions to identify and rate paths according to various safety and comfort criteria.
+SafePath is a web application that helps pedestrians navigate cities with a focus on safety rather than just travel time. The application uses community contributions to identify and rate paths according to various safety and comfort criteria.
 
 ## Features
 
